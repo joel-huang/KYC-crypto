@@ -214,31 +214,31 @@ def register_org(user,org):
 
 	
 
+while (again):
+	print("What would you like to do?")
+	print("1 Register for KYC service")
+	print("2 Register with an organization")
+	choice = input()
+	if (choice == "1"):
+		name = input("Sure! Please enter your full name: ")
+		postal_code = input("Please enter your postal code: ")
+		id_number = input("Please enter your id number: ")
+		dob = input("Please enter your date of birth in DD/MM/YYYY format: ")
+		user = User(name = name, postal_code = postal_code, id_number = id_number, dob = dob)
+		register_kyc(user)
+		print("registration complete")
 
-print("What would you like to do?")
-print("1 Register for KYC service")
-print("2 Register with an organization")
-choice = input()
-if (choice == "1"):
-	name = input("Sure! Please enter your full name: ")
-	postal_code = input("Please enter your postal code: ")
-	id_number = input("Please enter your id number: ")
-	dob = input("Please enter your date of birth in DD/MM/YYYY format: ")
-	user = User(name = name, postal_code = postal_code, id_number = id_number, dob = dob)
-	register_kyc(user)
-	print("registration complete")
+	elif choice == "2":
+		org_name = input("Enter the name of the organization you are registering for: ")
+		if org_name not in orgs:
+			org = Organization(org_name)
+			orgs[org_name] = org
+		else:
+			org = orgs[org_name]
+		register_org(user, org)
 
-elif choice == "2":
-	org_name = input("Enter the name of the organization you are registering for: ")
-	if org_name not in orgs:
-		org = Organization(org_name)
-		orgs[org_name] = org
 	else:
-		org = orgs[org_name]
-	register_org(user, org)
-
-else:
-	print("invalid choice, please try again")
+		print("invalid choice, please try again")
 
 
 
