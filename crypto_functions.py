@@ -10,13 +10,12 @@ def aes_encrypt(data,key):
 		data = bytes(data, encoding = "utf8")
 		
 	iv = Random.new().read(AES.block_size)
-	cipher = AES.new(key, AES.MODE_CFB, iv)
+	cipher = AES.new(key, AES.MODE_CFB,iv)
 
-	return (base64.b64encode(iv + cipher.encrypt(data)).decode())
+	return iv+cipher.encrypt(data)
 
 #function which decrypts data using AES
 def aes_decrypt(data,key):
-	data = base64.b64decode(data)
 	iv = data[:16]
 	cipher = AES.new(key, AES.MODE_CFB, iv)
 	decrypted = cipher.decrypt(data[16:]).decode()
