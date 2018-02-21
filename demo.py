@@ -323,8 +323,7 @@ def login_org(org):
 	request = {'request': 'login', 'username': username, 'password_hash': password_hash, 'signature': signature}
 	org.handleRequest(request)
 
-user = User(name = "Ang Beng Haun", postal_code = "518607", id_number = "S9503226E", dob = "26/01/1995")
-user.register_kyc()
+
 while (True):
 	print("What would you like to do?")
 	print("1 Register for KYC service")
