@@ -42,22 +42,144 @@ class User(object):
 
 	#re-encrypts the data on the block with a new AES key
 	def reencrypt(self):
+		print("Registration successful, re-encrypting %s's data on the block"%self.name)
+		#Get user to scan token to re-encrypt
+		while True:
+			userinput = input("Please scan your token:")
+			if userinput == self.id_number:
+				break;
+			else:
+				print("Wrong token, please try again")
+
 		#first get the old data from the block using the token
 		block_id = self.token.block_id
 		encrypted_info = blocks[int(block_id)].info
+		print("Obtained original encrypted data from the block: %s"%str(encrypted_info))
 		decrypted_info = {}
 		aes_key = self.token.AES_key
+		print("Decrypting info using AES key stored on token")
 		for key in encrypted_info:
 			decrypted_info[crypto_functions.aes_decrypt(key, aes_key)] = crypto_functions.aes_decrypt(encrypted_info[key], aes_key)
 
+		print("Decrypted info: %s"%str(decrypted_info))
 		#then generate the new key, re-encrypt the data and put it on the block
 		new_key = Random.new().read(32)
+		print("New AES key generated: %s"%new_key)
 		block = blocks[int(block_id)]
 		user_info = block.info
 		encrypted_user_info = {}
+		print("Re-encrypting info with new AES key:")
 		for key in user_info:
 			encrypted_user_info[crypto_functions.aes_encrypt(key, new_key)] = crypto_functions.aes_encrypt(user_info[key], new_key)
+		print("Newly encrypted info: %s"%encrypted_user_info)
 		block.info = encrypted_user_info
+
+	#function which allows a user to register with the KYC service
+	def register_kyc(self):
+		#extract user info, and generate public-private key
+		user_info = self.__dict__
+		AES_key = Random.new().read(32)
+		print("Generating AES key: %s"%AES_key)
+		RSA_pvt_key = RSA.generate(2048)
+		RSA_pub_key = RSA_pvt_key.publickey()
+
+		#create Merkle tree hash from user information, and add it to the dictionary
+		merkle_raw = user_info.copy().values() #make a copy of the information used to create the merkle tree
+		print("Information used to create merkle tree: %s"%str(merkle_raw))
+		hashed_info = [crypto_functions.hash256(item) for item in merkle_raw]
+		merkle = crypto_functions.merkle(hashed_info)
+		print("Computed merkle root: %s"%merkle)
+		print("Storing merkle root in user info")
+		user_info["merkle"] = merkle
+
+		#write key to the file then read the same file to obtain the key in plaintext
+		f = open("publicKey.pem", "a+b")
+		f.write(RSA_pub_key.exportKey('PEM'))
+		f.seek(0)
+		RSA_pub_key_str = f.read()
+		print("Generating RSA public key: %s"%RSA_pub_key_str)
+		f.close()
+
+		#delete file after this to prevent key from being stored as a file
+		os.remove("publicKey.pem")
+		print("Storing RSA public key in user info")
+		user_info["public_key"] = RSA_pub_key_str
+
+		#encrypt the information (except RSA private key) and store it on the block
+		encrypted_user_info = {}
+		print("Encrypting user info:%s"%str(user_info))
+		for key in user_info:
+			encrypted_user_info[crypto_functions.aes_encrypt(key, AES_key)] = crypto_functions.aes_encrypt(user_info[key], AES_key)
+		print("Encrypted user info: %s"%str(encrypted_user_info))
+		print("Storing encrypted user info in block")
+		block = Block(encrypted_user_info)
+		print("block id: %d"%block.id)
+
+		#store private key, AES key, and user's block id in the token
+		#first get private key as plaintext
+		f = open("privateKey.pem", "a+b")
+		f.write(RSA_pvt_key.exportKey('PEM'))
+		f.seek(0)
+		RSA_pvt_key_str = f.read()
+		print("Generating RSA private key: %s"%RSA_pvt_key_str)
+		f.close()
+
+		#delete file after this to prevent key from being stored as a file
+		os.remove("privateKey.pem")
+
+		#create the token object, and assign it to the user who is registering
+		print("Storing RSA private key, AES key, block ID and information used to compute merkle root in token")
+		token = Token(RSA_pvt_key_str,AES_key,block.id,merkle_raw)
+		print("Token sent to user")
+		self.setToken(token)
+
+	#function which allows a user to register with a organization, provided that he has already registered with KYC service
+	def register_org(self,org):
+		#organization first generates a public-private key pair, and sends the public key to the user
+		org.generateKey()
+		#write key to the file then read the same file to obtain the key in plaintext
+		f = open("publicKey.pem", "a+b")
+		f.write(org.RSA_pub_key.exportKey('PEM'))
+		f.seek(0)
+		RSA_pub_key_str = f.read()
+		print("%s generating RSA public key: %s"%(org.name,RSA_pub_key_str))
+		f.close()
+
+		#delete file after this to prevent key from being stored as a file
+		os.remove("publicKey.pem")
+		print("%s sending RSA public key to %s"%(org.name,user.name))
+		org.sendPublicKey(user)
+
+		#user inputs the username and password that he wants
+		username = input("Registration: please enter username: ")
+		password = getpass.getpass("Please enter password: ")
+		password_hash = crypto_functions.hash256(password)
+		print("Computing hash of password: %s"%password_hash)
+
+		#password is stored as hash for security reasons
+		#user scans his token, and the block id and AES key is encrypted using the public key and sent back to the organization
+		#simulation of virtual token, type in ID number to scan token
+		token = users[input("Please scan your token: ")].token
+		message = "{'request': 'register', 'block_id': '%s', 'username': '%s', 'password_hash': '%s', 'aes_key': %s}" %(token.block_id,username, password_hash, token.AES_key)
+		print("Encrypting request by user to register for organization: %s"%message)
+		self.sendToOrg(crypto_functions.rsa_encrypt(message,self.registration_key),org)
+		print("Sending encrypted request:%s"%org.recievedMessage)
+		#org decrypts the message with their private key and handles the message
+		#in this case, the user's request is for registration, and that will be done under the handleRequest method of the org
+
+		#store private key, AES key, and user's block id in the token
+		#first get private key as plaintext
+		f = open("privateKey.pem", "a+b")
+		f.write(org.RSA_pvt_key.exportKey('PEM'))
+		f.seek(0)
+		RSA_pvt_key_str = f.read()
+		print("Using RSA private key to decrypt request: %s"%RSA_pvt_key_str)
+		f.close()
+		#delete file after this to prevent key from being stored as a file
+		os.remove("privateKey.pem")
+		decrypted = crypto_functions.rsa_decrypt(org.recievedMessage,org.RSA_pvt_key)
+		user_request = ast.literal_eval(decrypted) #convert message to dict
+		org.handleRequest(user_request)
 	
 					
 		
@@ -127,14 +249,20 @@ class Organization(object):
 			block_id = request['block_id']
 			username = request["username"]
 			password_hash = request["password_hash"]
+			print("%s received registration request, accessing block %s now"%(self.name,block_id))
 			block = blocks[int(block_id)]
 			encrypted_info = block.info
 
+			print("Encrypted information on the block received: %s"%str(encrypted_info))
+
 			#decrypt info on the block using the user's AES key
+			print("Decrypting information on the block with user's AES key:")
 			decrypted_info = {}
 			for key in encrypted_info:
 				decrypted_info[crypto_functions.aes_decrypt(key, aes_key)] = crypto_functions.aes_decrypt(encrypted_info[key], aes_key)
 
+			print("Information decrypted: %s"%str(decrypted_info))
+			print("Storing user's information in database")
 			#add the decrypted info into the org's database
 			self.database[username] = UserInfo(decrypted_info["name"],decrypted_info["postal_code"], decrypted_info["id_number"], decrypted_info["dob"],username,password_hash,decrypted_info["merkle"], decrypted_info["public_key"])
 
@@ -151,6 +279,7 @@ class Organization(object):
 
 			else:
 				print("Login failed. Invalid username")
+				return
 
 
 			#check if password is correct
@@ -169,76 +298,7 @@ class Organization(object):
 				print("Login failed, could not verify identity")
 				self.handleRequest(request)
 
-#function which allows a user to register with the KYC service
-def register_kyc(user):
-	#extract user info, and generate public-private key
-	user_info = user.__dict__
-	AES_key = Random.new().read(32)
-	RSA_pvt_key = RSA.generate(2048)
-	RSA_pub_key = RSA_pvt_key.publickey()
 
-	#create Merkle tree hash from user information, and add it to the dictionary
-	merkle_raw = user_info.copy().values() #make a copy of the information used to create the merkle tree
-	hashed_info = [crypto_functions.hash256(item) for item in merkle_raw]
-	merkle = crypto_functions.merkle(hashed_info)
-	user_info["merkle"] = merkle
-
-	#write key to the file then read the same file to obtain the key in plaintext
-	f = open("publicKey.pem", "a+b")
-	f.write(RSA_pub_key.exportKey('PEM'))
-	f.seek(0)
-	RSA_pub_key_str = f.read()
-	f.close()
-
-	#delete file after this to prevent key from being stored as a file
-	os.remove("publicKey.pem")
-	user_info["public_key"] = RSA_pub_key_str
-
-	#encrypt the information (except RSA private key) and store it on the block
-	encrypted_user_info = {}
-	for key in user_info:
-		encrypted_user_info[crypto_functions.aes_encrypt(key, AES_key)] = crypto_functions.aes_encrypt(user_info[key], AES_key)
-	
-	block = Block(encrypted_user_info)
-
-	#store private key, AES key, and user's block id in the token
-	#first get private key as plaintext
-	f = open("privateKey.pem", "a+b")
-	f.write(RSA_pvt_key.exportKey('PEM'))
-	f.seek(0)
-	RSA_pvt_key_str = f.read()
-	f.close()
-
-	#delete file after this to prevent key from being stored as a file
-	os.remove("privateKey.pem")
-
-	#create the token object, and assign it to the user who is registering
-	token = Token(RSA_pvt_key_str,AES_key,block.id,merkle_raw)
-	user.setToken(token)
-
-#function which allows a user to register with a organization, provided that he has already registered with KYC service
-def register_org(user,org):
-	#organization first generates a public-private key pair, and sends the public key to the user
-	org.generateKey()
-	org.sendPublicKey(user)
-	#user inputs the username and password that he wants
-
-	username = input("Registration: please enter username: ")
-	password = getpass.getpass("Please enter password: ")
-	password_hash = crypto_functions.hash256(password)
-
-	#password is stored as hash for security reasons
-	#user scans his token, and the block id and AES key is encrypted using the public key and sent back to the organization
-	#simulation of virtual token, type in ID number to scan token
-	token = users[input("Please scan your token: ")].token
-	message = "{'request': 'register', 'block_id': '%s', 'username': '%s', 'password_hash': '%s', 'aes_key': %s}" %(token.block_id,username, password_hash, token.AES_key)
-	user.sendToOrg(crypto_functions.rsa_encrypt(message,user.registration_key),org)
-
-	#org decrypts the message with their private key and handles the message
-	#in this case, the user's request is for registration, and that will be done under the handleRequest method of the org
-	decrypted = crypto_functions.rsa_decrypt(org.recievedMessage,org.RSA_pvt_key)
-	user_request = ast.literal_eval(decrypted) #convert message to dict
-	org.handleRequest(user_request)
 
 #function for users to log in
 def login_org(org):
@@ -262,7 +322,8 @@ def login_org(org):
 	#send login request to organization
 	request = {'request': 'login', 'username': username, 'password_hash': password_hash, 'signature': signature}
 	org.handleRequest(request)
-	
+
+
 while (True):
 	print("What would you like to do?")
 	print("1 Register for KYC service")
@@ -275,7 +336,7 @@ while (True):
 		id_number = input("Please enter your id number: ")
 		dob = input("Please enter your date of birth in DD/MM/YYYY format: ")
 		user = User(name = name, postal_code = postal_code, id_number = id_number, dob = dob)
-		register_kyc(user)
+		user.register_kyc()
 		print("registration complete")
 
 	elif choice == "2":
@@ -287,7 +348,7 @@ while (True):
 			orgs[org_name] = org
 		else:
 			org = orgs[org_name]
-		register_org(user, org)
+		user.register_org(org)
 
 	elif choice == "3":
 		org_name = input("Enter the name of the organization you are logging in to: ")
