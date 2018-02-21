@@ -1,7 +1,7 @@
 from Crypto import Random
 from Crypto.PublicKey import RSA
 from Crypto.Hash import SHA256
-from Crypto.Signature import pkcs1_15
+from Crypto.Signature import PKCS1_v1_5
 import os
 import crypto_functions
 import ast
@@ -161,8 +161,8 @@ class Organization(object):
 			#verify identity using digital signature
 			try:
 				hash_object = SHA256.new(data = bytes(userinfo.merkle, encoding = "utf-8"))
-				public_key = RSA.import_key(userinfo.public_key)
-				pkcs1_15.new(public_key).verify(hash_object, signature)
+				public_key = RSA.importKey(userinfo.public_key)
+				PKCS1_v1_5.new(public_key).verify(hash_object, signature)
 				print("Login successful")
 
 			except ValueError:
@@ -256,8 +256,8 @@ def login_org(org):
 	merkle = crypto_functions.merkle(hashed_info)
 	#create digital signature by encrypting the merkle root using RSA
 	hash_object = SHA256.new(data = bytes(merkle, encoding = "utf-8"))
-	privateKey = RSA.import_key(token.RSA_pvt_key)
-	signature = pkcs1_15.new(privateKey).sign(hash_object)
+	privateKey = RSA.importKey(token.RSA_pvt_key)
+	signature = PKCS1_v1_5.new(privateKey).sign(hash_object)
 
 	#send login request to organization
 	request = {'request': 'login', 'username': username, 'password_hash': password_hash, 'signature': signature}
